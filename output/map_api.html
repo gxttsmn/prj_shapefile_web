@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css"/>
+    
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/css/bootstrap.min.css"/>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.2.0/css/all.min.css"/>
+    
+    <!-- Leaflet Draw -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.css"/>
+    
+    <!-- 规划工具样式 -->
+    <link rel="stylesheet" href="css/planning.css"/>
+    
+    <!-- AI聊天窗口样式 -->
+    <link rel="stylesheet" href="css/ai-chat.css"/>
+    
+    <!-- 自定义样式 -->
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        
+        #map {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            right: 0;
+            left: 0;
+        }
+        
+        .leaflet-container {
+            font-size: 1rem;
+        }
+        
+        /* 图例样式 */
+        .legend {
+            position: fixed;
+            bottom: 50px;
+            right: 50px;
+            width: 150px;
+            height: auto;
+            background-color: white;
+            z-index: 9999;
+            border: 2px solid grey;
+            border-radius: 5px;
+            padding: 10px;
+            font-size: 12px;
+            font-family: Microsoft YaHei, Arial, sans-serif;
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+        }
+        
+        .legend h4 {
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+        
+        .legend-item {
+            margin: 5px 0;
+        }
+        
+        .legend-icon {
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 5px;
+        }
+        
+        /* 加载提示 */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.9);
+            z-index: 10000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+        
+        .loading-spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .loading-text {
+            margin-top: 20px;
+            font-size: 16px;
+            color: #333;
+            font-family: Microsoft YaHei, Arial, sans-serif;
+        }
+        
+        /* 状态栏 */
+        .status-bar {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background-color: white;
+            padding: 10px 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 9999;
+            font-family: Microsoft YaHei, Arial, sans-serif;
+            font-size: 12px;
+            text-align: right;
+        }
+        
+        .status-item {
+            margin: 5px 0;
+            text-align: right;
+        }
+        
+        .status-item strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        .status-success {
+            color: #28a745;
+        }
+        
+        .status-error {
+            color: #dc3545;
+        }
+        
+        /* 右键菜单样式 */
+        .context-menu {
+            position: absolute;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            padding: 4px 0;
+            min-width: 150px;
+            z-index: 10000;
+            display: none;
+            font-family: Microsoft YaHei, Arial, sans-serif;
+            font-size: 14px;
+        }
+        
+        .context-menu-item {
+            padding: 8px 16px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .context-menu-item:hover {
+            background-color: #f0f0f0;
+        }
+        
+        .context-menu-item.delete {
+            color: #dc3545;
+        }
+        
+        .context-menu-item.delete:hover {
+            background-color: #fee;
+        }
+        
+        .context-menu-divider {
+            height: 1px;
+            background-color: #eee;
+            margin: 4px 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- 右键菜单 -->
+    <div id="context-menu" class="context-menu">
+        <div class="context-menu-item delete" id="context-menu-delete">
+            <i class="fas fa-trash"></i> 删除
+        </div>
+    </div>
+    <!-- 加载提示 -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">正在加载数据...</div>
+    </div>
+    
+    <!-- 规划工具面板 -->
+    <div class="planning-tool-panel" style="top: 80px;">
+        <h4>要素规划</h4>
+        <div class="planning-btn-group">
+            <button id="draw-point-btn" class="planning-btn" title="绘制村庄（点）">
+                <i class="fas fa-map-marker-alt"></i>
+                <span>绘制村庄</span>
+            </button>
+            <button id="draw-line-btn" class="planning-btn" title="绘制河渠（线）">
+                <i class="fas fa-water"></i>
+                <span>绘制河渠</span>
+            </button>
+            <button id="draw-polygon-btn" class="planning-btn" title="绘制水域（面）">
+                <i class="fas fa-draw-polygon"></i>
+                <span>绘制水域</span>
+            </button>
+            <button id="cancel-draw-btn" class="planning-btn cancel-btn" title="取消绘制">
+                <i class="fas fa-times"></i>
+                <span>取消绘制</span>
+            </button>
+        </div>
+    </div>
+    
+    <!-- 绘制提示 -->
+    <div id="drawing-hint"></div>
+    
+    <!-- 信息编辑模态框 -->
+    <div class="modal fade" id="planning-edit-modal" tabindex="-1" aria-labelledby="planning-edit-modal-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="planning-edit-modal-label">要素信息编辑</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="modal-error" class="modal-error"></div>
+                    
+                    <div class="mb-3">
+                        <label for="feature-type-select" class="form-label">要素类型 <span class="required">*</span></label>
+                        <select class="form-select" id="feature-type-select" disabled>
+                            <option value="point">村庄（点）</option>
+                            <option value="line">河渠（线）</option>
+                            <option value="polygon">水域（面）</option>
+                        </select>
+                        <small class="form-text text-muted">要素类型由绘制工具决定，不可修改</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="feature-name" class="form-label">名称 <span class="required">*</span></label>
+                        <input type="text" class="form-control" id="feature-name" placeholder="请输入要素名称" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">坐标信息</label>
+                        <div class="coordinates-info">
+                            <div id="coordinates-display">加载中...</div>
+                            <a href="#" class="coordinates-toggle" onclick="toggleCoordinatesDetail(event)">查看详细坐标</a>
+                            <div id="coordinates-detail" class="coordinates-detail"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="feature-fclass" class="form-label">类别</label>
+                        <input type="text" class="form-control" id="feature-fclass" placeholder="如：village, river, water">
+                        <small class="form-text text-muted">要素类别（可选）</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="feature-code" class="form-label">代码</label>
+                        <input type="text" class="form-control" id="feature-code" placeholder="如：1003, 8200">
+                        <small class="form-text text-muted">分类代码（可选）</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="feature-description" class="form-label">备注</label>
+                        <textarea class="form-control" id="feature-description" rows="3" placeholder="其他说明信息（可选）"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-cancel" id="cancel-feature-btn">取消</button>
+                    <button type="button" class="btn btn-primary btn-save" id="save-feature-btn">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 状态栏 -->
+    <div class="status-bar">
+        <div class="status-item">
+            <strong>数据加载状态</strong>
+        </div>
+        <div id="status-villages" class="status-item">村庄: <span>加载中...</span></div>
+        <div id="status-rivers" class="status-item">河渠: <span>加载中...</span></div>
+        <div id="status-water-bodies" class="status-item">水系: <span>加载中...</span></div>
+    </div>
+    
+    <!-- 图例 -->
+    <div class="legend">
+        <h4>图例</h4>
+        <div class="legend-item">
+            <span class="legend-icon" style="width: 20px; height: 20px; background-color: #ff6b6b; border-radius: 50%; border: 2px solid #ff6b6b;"></span>
+            <span>村庄（点）</span>
+        </div>
+        <div class="legend-item">
+            <span class="legend-icon" style="width: 30px; height: 3px; background-color: #4ecdc4;"></span>
+            <span>河渠（线）</span>
+        </div>
+        <div class="legend-item">
+            <span class="legend-icon" style="width: 20px; height: 20px; background-color: #45b7d1; border: 2px solid #45b7d1;"></span>
+            <span>水系（面）</span>
+        </div>
+    </div>
+    
+    <!-- AI助手浮动按钮 -->
+    <button id="ai-assistant-btn" class="ai-assistant-btn" title="使用AI进行修改">
+        <i class="fas fa-magic"></i>
+        <span class="ai-tooltip">使用AI进行修改</span>
+    </button>
+    
+    <!-- AI聊天窗口 -->
+    <div id="ai-chat-window" class="ai-chat-window">
+        <div class="ai-chat-header">
+            <h5>
+                <i class="fas fa-robot"></i>
+                AI 地理空间数据助手
+            </h5>
+            <button class="close-btn" id="ai-chat-close-btn">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="ai-chat-messages" id="ai-chat-messages">
+            <div class="ai-chat-empty">
+                <div style="text-align: center;">
+                    <i class="fas fa-comments" style="font-size: 32px; color: #ddd; margin-bottom: 8px;"></i>
+                    <div>请输入您的问题或需求...</div>
+                </div>
+            </div>
+        </div>
+        <div class="ai-chat-input-area">
+            <div class="ai-chat-input-wrapper">
+                <textarea 
+                    id="ai-chat-input" 
+                    class="ai-chat-input" 
+                    placeholder="例如：如何创建村庄？如何绘制河渠？..."
+                    rows="2"
+                ></textarea>
+            </div>
+            <div class="ai-chat-actions">
+                <button class="ai-chat-btn ai-chat-btn-cancel" id="ai-chat-cancel-btn">取消</button>
+                <button class="ai-chat-btn ai-chat-btn-execute" id="ai-chat-execute-btn">执行</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 地图容器 -->
+    <div id="map"></div>
+    
+    <!-- Leaflet JS -->
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
+    
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Leaflet Draw -->
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+    
+    <!-- API调用模块 -->
+    <script src="js/api.js"></script>
+    
+    <!-- 规划工具模块 -->
+    <script src="js/planning.js"></script>
+    
+    <!-- AI聊天窗口模块 -->
+    <script src="js/ai-chat.js"></script>
+    
+    <script>
+        // 地图配置
+        const MAP_CONFIG = {
+            center: [35.1161318971041, 111.03369140788223], // 默认中心点（山西运城）
+            zoom: 10,
+            bounds: [[35.00263407996821, 110.88972337203603], [35.22962971423999, 111.17765944372843]]
+        };
+        
+        // 图层样式配置
+        const LAYER_STYLES = {
+            point: {
+                radius: 6,
+                color: '#ff6b6b',
+                fillColor: '#ff6b6b',
+                fillOpacity: 0.7,
+                weight: 2
+            },
+            line: {
+                color: '#4ecdc4',
+                weight: 3,
+                opacity: 0.8
+            },
+            polygon: {
+                fillColor: '#45b7d1',
+                color: '#45b7d1',
+                weight: 2,
+                fillOpacity: 0.5,
+                opacity: 0.8
+            }
+        };
+        
+        // 初始化地图
+        let map = L.map('map', {
+            center: MAP_CONFIG.center,
+            zoom: MAP_CONFIG.zoom,
+            crs: L.CRS.EPSG3857
+        });
+        
+        // 添加底图
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            maxZoom: 19
+        }).addTo(map);
+        
+        // 设置地图边界
+        if (MAP_CONFIG.bounds) {
+            map.fitBounds(MAP_CONFIG.bounds, { padding: [50, 50] });
+        }
+        
+        // 创建图层组
+        const villagesLayer = L.layerGroup().addTo(map);
+        const riversLayer = L.layerGroup().addTo(map);
+        const waterBodiesLayer = L.layerGroup().addTo(map);
+        
+        // 规划图层（用于临时显示未保存的要素）
+        let planningLayer = null;
+        
+        // 更新状态
+        function updateStatus(type, status, message) {
+            const statusEl = document.getElementById(`status-${type}`);
+            if (statusEl) {
+                const span = statusEl.querySelector('span');
+                if (span) {
+                    span.textContent = message;
+                    span.className = `status-${status}`;
+                }
+            }
+        }
+        
+        // 格式化弹窗内容
+        function formatPopupContent(properties, layerType) {
+            const typeNames = {
+                point: '村庄信息',
+                line: '河渠信息',
+                polygon: '水系信息'
+            };
+            
+            const typeColors = {
+                point: '#ff6b6b',
+                line: '#4ecdc4',
+                polygon: '#45b7d1'
+            };
+            
+            let html = `<div style="font-family: Microsoft YaHei, Arial, sans-serif;">
+                <h4 style="margin: 0 0 10px 0; color: ${typeColors[layerType]};">${typeNames[layerType]}</h4>
+                <table style="border-collapse: collapse; width: 100%;">`;
+            
+            // 首先显示 gid（如果存在）
+            if (properties.gid !== undefined && properties.gid !== null) {
+                html += `
+                    <tr>
+                        <td style="padding: 4px 8px; font-weight: bold; border-bottom: 1px solid #eee; color: #666;">ID:</td>
+                        <td style="padding: 4px 8px; border-bottom: 1px solid #eee; font-family: monospace; color: #333;">${properties.gid}</td>
+                    </tr>`;
+            }
+            
+            // 然后显示其他属性（排除 geometry）
+            for (const [key, value] of Object.entries(properties)) {
+                if (key !== 'gid' && key !== 'geometry') {
+                    html += `
+                    <tr>
+                        <td style="padding: 4px 8px; font-weight: bold; border-bottom: 1px solid #eee;">${key}:</td>
+                        <td style="padding: 4px 8px; border-bottom: 1px solid #eee;">${value || ''}</td>
+                    </tr>`;
+                }
+            }
+            
+            html += `</table></div>`;
+            return html;
+        }
+        
+        // 添加点要素
+        function addPointFeature(feature, layer) {
+            const geometry = feature.geometry;
+            if (!geometry || geometry.type !== 'Point') {
+                console.warn('[WARN] addPointFeature: 无效的几何类型或缺少几何数据');
+                return;
+            }
+            
+            const coords = geometry.coordinates;
+            if (!coords || !Array.isArray(coords) || coords.length < 2) {
+                console.error('[ERROR] addPointFeature: 坐标数据无效:', coords);
+                return;
+            }
+            
+            const [lon, lat] = coords;
+            
+            // 调试：输出渲染时的坐标
+            console.log('[DEBUG] ========== 渲染点要素到地图 ==========');
+            console.log('[DEBUG] 要素GID:', feature.properties?.gid);
+            console.log('[DEBUG] GeoJSON坐标 [lon, lat]:', coords);
+            console.log('[DEBUG] 经度:', lon, '纬度:', lat);
+            console.log('[DEBUG] Leaflet坐标 [lat, lon]:', [lat, lon]);
+            
+            // 检查坐标是否异常（116.0000, 39.9999 可能是默认值）
+            if (Math.abs(lon - 116.0) < 0.0001 && Math.abs(lat - 39.9999) < 0.0001) {
+                console.error('[ERROR] ⚠️ 检测到异常坐标 (116.0, 39.9999)，可能是默认值！');
+                console.error('[ERROR] 原始要素数据:', JSON.stringify(feature, null, 2));
+            }
+            
+            const properties = feature.properties || {};
+            const gid = properties.gid;
+            
+            const popupContent = formatPopupContent(properties, 'point');
+            const tooltipContent = properties.name || '村庄';
+            
+            const marker = L.circleMarker([lat, lon], LAYER_STYLES.point)
+                .bindPopup(popupContent)
+                .bindTooltip(tooltipContent, { sticky: true })
+                .addTo(layer);
+            
+            // 保存要素信息到marker对象，用于右键菜单
+            marker.featureType = 'villages';
+            marker.featureGid = gid;
+            marker.featureName = properties.name || '村庄';
+            
+            // 绑定右键事件
+            marker.on('contextmenu', function(e) {
+                showContextMenu(e, 'villages', gid, marker.featureName);
+            });
+            
+            // 保存完整的要素数据，用于双击编辑
+            marker.feature = feature;
+            
+            // 绑定双击编辑事件
+            if (typeof bindDoubleClickEdit === 'function') {
+                bindDoubleClickEdit(marker);
+            }
+        }
+        
+        // 添加线要素
+        function addLineFeature(feature, layer) {
+            const geometry = feature.geometry;
+            if (!geometry || (geometry.type !== 'LineString' && geometry.type !== 'MultiLineString')) {
+                return;
+            }
+            
+            const properties = feature.properties || {};
+            const gid = properties.gid;
+            const popupContent = formatPopupContent(properties, 'line');
+            const tooltipContent = properties.name || '河渠';
+            
+            const geojsonLayer = L.geoJSON(feature, {
+                style: LAYER_STYLES.line,
+                onEachFeature: function(feature, layer) {
+                    layer.bindPopup(popupContent);
+                    layer.bindTooltip(tooltipContent, { sticky: true });
+                    
+                    // 保存要素信息到layer对象，用于右键菜单
+                    layer.featureType = 'rivers';
+                    layer.featureGid = gid;
+                    layer.featureName = properties.name || '河渠';
+                    
+                    // 绑定右键事件
+                    layer.on('contextmenu', function(e) {
+                        showContextMenu(e, 'rivers', gid, layer.featureName);
+                    });
+                    
+                    // 保存完整的要素数据，用于双击编辑
+                    layer.feature = feature;
+                    
+                    // 绑定双击编辑事件
+                    if (typeof bindDoubleClickEdit === 'function') {
+                        bindDoubleClickEdit(layer);
+                    }
+                }
+            }).addTo(layer);
+        }
+        
+        // 添加面要素
+        function addPolygonFeature(feature, layer) {
+            const geometry = feature.geometry;
+            if (!geometry || (geometry.type !== 'Polygon' && geometry.type !== 'MultiPolygon')) {
+                return;
+            }
+            
+            const properties = feature.properties || {};
+            const gid = properties.gid;
+            const popupContent = formatPopupContent(properties, 'polygon');
+            const tooltipContent = properties.name || '水系';
+            
+            const geojsonLayer = L.geoJSON(feature, {
+                style: LAYER_STYLES.polygon,
+                onEachFeature: function(feature, layer) {
+                    layer.bindPopup(popupContent);
+                    layer.bindTooltip(tooltipContent, { sticky: true });
+                    
+                    // 保存要素信息到layer对象，用于右键菜单
+                    layer.featureType = 'water_bodies';
+                    layer.featureGid = gid;
+                    layer.featureName = properties.name || '水系';
+                    
+                    // 绑定右键事件
+                    layer.on('contextmenu', function(e) {
+                        showContextMenu(e, 'water_bodies', gid, layer.featureName);
+                    });
+                    
+                    // 保存完整的要素数据，用于双击编辑
+                    layer.feature = feature;
+                    
+                    // 绑定双击编辑事件
+                    if (typeof bindDoubleClickEdit === 'function') {
+                        bindDoubleClickEdit(layer);
+                    }
+                }
+            }).addTo(layer);
+        }
+        
+        // 加载村庄数据（使用api.js中的函数）
+        async function loadVillagesData() {
+            try {
+                updateStatus('villages', 'loading', '加载中...');
+                console.log('[DEBUG] 开始调用 loadVillages API...');
+                const geojson = await loadVillages();
+                console.log('[DEBUG] API返回数据:', geojson);
+                console.log('[DEBUG] features数量:', geojson.features?.length || 0);
+                
+                if (geojson.features && geojson.features.length > 0) {
+                    console.log('[DEBUG] 开始添加点要素到地图...');
+                    geojson.features.forEach((feature, index) => {
+                        console.log(`[DEBUG] 添加要素 ${index + 1}:`, feature);
+                        addPointFeature(feature, villagesLayer);
+                    });
+                    updateStatus('villages', 'success', `已加载 ${geojson.features.length} 个`);
+                } else {
+                    console.warn('[DEBUG] 没有features数据或features为空');
+                    updateStatus('villages', 'success', '0 个');
+                }
+                return geojson;
+            } catch (error) {
+                console.error('加载村庄数据失败:', error);
+                updateStatus('villages', 'error', '加载失败: ' + error.message);
+                throw error;
+            }
+        }
+        
+        // 加载河渠数据（使用api.js中的函数）
+        async function loadRiversData() {
+            try {
+                updateStatus('rivers', 'loading', '加载中...');
+                const geojson = await loadRivers();
+                
+                if (geojson.features && geojson.features.length > 0) {
+                    geojson.features.forEach(feature => {
+                        addLineFeature(feature, riversLayer);
+                    });
+                    updateStatus('rivers', 'success', `已加载 ${geojson.features.length} 个`);
+                } else {
+                    updateStatus('rivers', 'success', '0 个');
+                }
+                return geojson;
+            } catch (error) {
+                console.error('加载河渠数据失败:', error);
+                updateStatus('rivers', 'error', '加载失败');
+                throw error;
+            }
+        }
+        
+        // 加载水系数据（使用api.js中的函数）
+        async function loadWaterBodiesData() {
+            try {
+                updateStatus('water-bodies', 'loading', '加载中...');
+                const geojson = await loadWaterBodies();
+                
+                if (geojson.features && geojson.features.length > 0) {
+                    geojson.features.forEach(feature => {
+                        addPolygonFeature(feature, waterBodiesLayer);
+                    });
+                    updateStatus('water-bodies', 'success', `已加载 ${geojson.features.length} 个`);
+                } else {
+                    updateStatus('water-bodies', 'success', '0 个');
+                }
+                return geojson;
+            } catch (error) {
+                console.error('加载水系数据失败:', error);
+                updateStatus('water-bodies', 'error', '加载失败');
+                throw error;
+            }
+        }
+        
+        // 右键菜单管理
+        let currentFeatureInfo = null;
+        
+        function showContextMenu(e, featureType, gid, featureName) {
+            // 阻止默认右键菜单
+            e.originalEvent.preventDefault();
+            e.originalEvent.stopPropagation();
+            
+            // 保存当前要素信息
+            currentFeatureInfo = {
+                type: featureType,
+                gid: gid,
+                name: featureName
+            };
+            
+            // 显示菜单
+            const menu = document.getElementById('context-menu');
+            menu.style.display = 'block';
+            menu.style.left = e.originalEvent.clientX + 'px';
+            menu.style.top = e.originalEvent.clientY + 'px';
+        }
+        
+        function hideContextMenu() {
+            const menu = document.getElementById('context-menu');
+            menu.style.display = 'none';
+            currentFeatureInfo = null;
+        }
+        
+        // 点击其他地方隐藏菜单
+        document.addEventListener('click', function(e) {
+            const menu = document.getElementById('context-menu');
+            if (menu && !menu.contains(e.target)) {
+                hideContextMenu();
+            }
+        });
+        
+        // 删除功能
+        async function deleteFeature() {
+            if (!currentFeatureInfo) {
+                return;
+            }
+            
+            const { type, gid, name } = currentFeatureInfo;
+            
+            // 确认删除
+            if (!confirm(`确定要删除 "${name}" 吗？\n（此操作将软删除，数据不会真正删除）`)) {
+                hideContextMenu();
+                return;
+            }
+            
+            try {
+                let result;
+                // 根据要素类型调用不同的删除API
+                switch(type) {
+                    case 'villages':
+                        result = await deleteVillage(gid);
+                        break;
+                    case 'rivers':
+                        result = await deleteRiver(gid);
+                        break;
+                    case 'water_bodies':
+                        result = await deleteWaterBody(gid);
+                        break;
+                    default:
+                        alert('未知的要素类型');
+                        return;
+                }
+                
+                if (result.success) {
+                    alert('删除成功！');
+                    // 重新加载数据
+                    await reloadAllData();
+                } else {
+                    alert('删除失败：' + (result.error || '未知错误'));
+                }
+            } catch (error) {
+                console.error('删除失败:', error);
+                alert('删除失败：' + error.message);
+            }
+            
+            hideContextMenu();
+        }
+        
+        // 重新加载所有数据
+        async function reloadAllData() {
+            // 清空图层
+            villagesLayer.clearLayers();
+            riversLayer.clearLayers();
+            waterBodiesLayer.clearLayers();
+            
+            // 重新加载
+            await Promise.all([
+                loadVillagesData(),
+                loadRiversData(),
+                loadWaterBodiesData()
+            ]);
+            
+            // 重新计算边界
+            setTimeout(() => {
+                calculateBounds();
+            }, 500);
+        }
+        // Expose for ai-chat.js: refresh layers when Agent returns <<STATUS:SUCCESS>>
+        window.reloadAllData = reloadAllData;
+        
+        // 计算所有要素的边界
+        function calculateBounds() {
+            try {
+                // 收集所有有效的图层
+                const allLayers = [];
+                
+                // 收集点图层（村庄）
+                villagesLayer.eachLayer(function(layer) {
+                    if (layer && (layer.getLatLng || layer.getBounds)) {
+                        allLayers.push(layer);
+                    }
+                });
+                
+                // 收集线图层（河渠）
+                riversLayer.eachLayer(function(layer) {
+                    if (layer && layer.getBounds) {
+                        try {
+                            // 验证图层是否有有效的边界
+                            const bounds = layer.getBounds();
+                            if (bounds && bounds.isValid()) {
+                                allLayers.push(layer);
+                            }
+                        } catch (e) {
+                            console.warn('跳过无效的线图层:', e);
+                        }
+                    }
+                });
+                
+                // 收集面图层（水系）
+                waterBodiesLayer.eachLayer(function(layer) {
+                    if (layer && layer.getBounds) {
+                        try {
+                            // 验证图层是否有有效的边界
+                            const bounds = layer.getBounds();
+                            if (bounds && bounds.isValid()) {
+                                allLayers.push(layer);
+                            }
+                        } catch (e) {
+                            console.warn('跳过无效的面图层:', e);
+                        }
+                    }
+                });
+                
+                // 如果有图层，计算边界
+                if (allLayers.length > 0) {
+                    try {
+                        const group = new L.featureGroup(allLayers);
+                        const groupBounds = group.getBounds();
+                        if (groupBounds && groupBounds.isValid()) {
+                            map.fitBounds(groupBounds, { padding: [50, 50] });
+                        }
+                    } catch (e) {
+                        console.warn('创建 FeatureGroup 或计算边界失败:', e);
+                        // 如果 FeatureGroup 方法失败，尝试手动计算边界
+                        const latlngs = [];
+                        allLayers.forEach(function(layer) {
+                            try {
+                                if (layer.getLatLng) {
+                                    latlngs.push(layer.getLatLng());
+                                } else if (layer.getBounds) {
+                                    const bounds = layer.getBounds();
+                                    if (bounds && bounds.isValid()) {
+                                        latlngs.push(bounds.getSouthWest());
+                                        latlngs.push(bounds.getNorthEast());
+                                    }
+                                }
+                            } catch (err) {
+                                // 跳过无效图层
+                            }
+                        });
+                        if (latlngs.length > 0) {
+                            const bounds = L.latLngBounds(latlngs);
+                            if (bounds.isValid()) {
+                                map.fitBounds(bounds, { padding: [50, 50] });
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn('计算地图边界失败:', error);
+                // 不抛出错误，避免影响其他功能
+            }
+        }
+        
+        // 初始化：加载所有数据
+        async function init() {
+            try {
+                console.log('开始加载数据...');
+                
+                // 并行加载所有数据
+                const [villagesData, riversData, waterBodiesData] = await Promise.all([
+                    loadVillagesData(),
+                    loadRiversData(),
+                    loadWaterBodiesData()
+                ]);
+                
+                console.log('数据加载完成:', {
+                    villages: villagesData.features?.length || 0,
+                    rivers: riversData.features?.length || 0,
+                    waterBodies: waterBodiesData.features?.length || 0
+                });
+                
+                // 计算并设置地图边界
+                setTimeout(() => {
+                    calculateBounds();
+                }, 500);
+                
+                // 隐藏加载提示
+                document.getElementById('loading-overlay').style.display = 'none';
+                
+                // 返回成功，用于链式调用
+                return Promise.resolve();
+                
+            } catch (error) {
+                console.error('初始化失败:', error);
+                document.getElementById('loading-overlay').innerHTML = `
+                    <div style="text-align: center;">
+                        <div style="color: #dc3545; font-size: 18px; margin-bottom: 10px;">
+                            <i class="fas fa-exclamation-triangle"></i> 加载失败
+                        </div>
+                        <div style="color: #666; font-size: 14px;">
+                            ${error.message}
+                        </div>
+                        <div style="margin-top: 20px;">
+                            <button onclick="location.reload()" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                重新加载
+                            </button>
+                        </div>
+                    </div>
+                `;
+                return Promise.reject(error);
+            }
+        }
+        
+        // 绑定删除按钮事件
+        document.addEventListener('DOMContentLoaded', function() {
+            const deleteBtn = document.getElementById('context-menu-delete');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', deleteFeature);
+            }
+        });
+        
+        // 切换坐标详情显示
+        function toggleCoordinatesDetail(event) {
+            event.preventDefault();
+            const detail = document.getElementById('coordinates-detail');
+            const toggle = event.target;
+            if (detail.style.display === 'none' || !detail.style.display) {
+                detail.style.display = 'block';
+                toggle.textContent = '隐藏详细坐标';
+            } else {
+                detail.style.display = 'none';
+                toggle.textContent = '查看详细坐标';
+            }
+        }
+        
+        // 页面加载完成后初始化
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function() {
+                // 初始化AI聊天窗口
+                if (typeof initAIChat === 'function') {
+                    initAIChat();
+                }
+                
+                init().then(function() {
+                    // 数据加载完成后再初始化规划工具
+                    if (typeof initPlanningTool === 'function') {
+                        initPlanningTool(map);
+                    }
+                });
+            });
+        } else {
+            // 初始化AI聊天窗口
+            if (typeof initAIChat === 'function') {
+                initAIChat();
+            }
+            
+            init().then(function() {
+                // 数据加载完成后再初始化规划工具
+                if (typeof initPlanningTool === 'function') {
+                    initPlanningTool(map);
+                }
+            });
+        }
+    </script>
+</body>
+</html>
+
